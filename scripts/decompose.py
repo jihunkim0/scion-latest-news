@@ -67,7 +67,7 @@ def process_folder(folder_path):
         try:
             current_branch = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], stderr=subprocess.DEVNULL).decode().strip()
         except subprocess.CalledProcessError:
-            current_branch = "main"
+            current_branch = "HEAD"
 
     # Auto-commit to bypass the Worktree Trap before spawning agents
     try:
@@ -77,16 +77,22 @@ def process_folder(folder_path):
     except Exception as e:
         pass
 
-    prompt = f"git config --global --add safe.directory '*' && git pull origin {current_branch} --no-edit && cd {rel_path} && decompose this task. To mark as terminal, create {terminal_file.absolute()}. DO NOT WORRY ABOUT LOCK FILES."
+    prompt = f"git config --global --add safe.directory '*' && git pull origin {current_branch} --no-edit && cd '{rel_path}' && decompose this task. To mark as terminal, create '{terminal_file.absolute()}'. DO NOT WORRY ABOUT LOCK FILES."
     command = ["scion", "start", "-t", "tasker", task_slug, prompt, "--non-interactive"]
     
     print(f"Decomposing task: {task_slug} in {folder} (pulling from {current_branch})")
     try:
         working_file.touch()
         # Sequential call to prevent Hub SQLite database locking
-        subprocess.run(command, cwd=Path.cwd(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        result = subprocess.run(command, cwd=Path.cwd(), capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"Error starting agent {task_slug}:\n{result.stderr}", file=sys.stderr)
+            working_file.unlink(missing_ok=True)
+            return False
     except FileNotFoundError:
         print("Error: 'scion' command not found.", file=sys.stderr)
+        working_file.unlink(missing_ok=True)
+        return False
     
     return True
 
@@ -124,6 +130,13 @@ def generate_mermaid_graph(root_folder):
     graph_file = root_path / "architecture-graph.md"
     graph_file.write_text("\n".join(graph_lines))
     print(f"\nArchitecture graph successfully generated at: {graph_file}")
+    
+    try:
+        subprocess.run(["git", "add", str(graph_file)], cwd=Path.cwd(), stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+        subprocess.run(["git", "-c", "user.name=Jihun Kim", "-c", "user.email=jihunkim0@users.noreply.github.com", "commit", "-m", "docs: update architecture dependency graph"], cwd=Path.cwd(), stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+        subprocess.run(["git", "push", "origin", "HEAD"], cwd=Path.cwd(), stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+    except Exception:
+        pass
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
@@ -139,9 +152,11 @@ if __name__ == "__main__":
     while still_working:
         print("Agents are working... pulling latest git state")
         try:
-            subprocess.run(["git", "pull", "origin", "HEAD", "--no-edit"], cwd=Path.cwd(), stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
-        except Exception:
-            pass
+            result = subprocess.run(["git", "pull", "origin", "HEAD", "--no-edit"], cwd=Path.cwd(), capture_output=True, text=True)
+            if result.returncode != 0:
+                print(f"Warning: git pull failed (will retry next loop):\n{result.stderr}", file=sys.stderr)
+        except Exception as e:
+            print(f"Warning: Exception during git pull: {e}", file=sys.stderr)
             
         still_working = process_folder(target_folder)
         if still_working:
