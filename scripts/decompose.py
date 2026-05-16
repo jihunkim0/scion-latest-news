@@ -87,10 +87,10 @@ def process_folder(folder_path):
     except Exception as e:
         pass
 
-    prompt = f"cd {rel_path} && decompose this task. Your lockfile is {working_file.absolute()}. To mark as terminal, create {terminal_file.absolute()}."
-    command = ["scion", "start", "-t", "tasker", "-b", current_branch, task_slug, prompt, "--non-interactive"]
+    prompt = f"git pull origin {current_branch} --no-edit && cd {rel_path} && decompose this task. Your lockfile is {working_file.absolute()}. To mark as terminal, create {terminal_file.absolute()}."
+    command = ["scion", "start", "-t", "tasker", task_slug, prompt, "--non-interactive"]
     
-    print(f"Decomposing task: {task_slug} in {folder} on branch {current_branch}")
+    print(f"Decomposing task: {task_slug} in {folder} (pulling from {current_branch})")
     try:
         working_file.touch()
         # Non-blocking async call unlocks massive swarm parallelization
