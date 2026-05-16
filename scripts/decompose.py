@@ -77,14 +77,14 @@ def process_folder(folder_path):
     except Exception as e:
         pass
 
-    prompt = f"git pull origin {current_branch} --no-edit && cd {rel_path} && decompose this task. To mark as terminal, create {terminal_file.absolute()}. DO NOT WORRY ABOUT LOCK FILES."
+    prompt = f"git config --global --add safe.directory '*' && git pull origin {current_branch} --no-edit && cd {rel_path} && decompose this task. To mark as terminal, create {terminal_file.absolute()}. DO NOT WORRY ABOUT LOCK FILES."
     command = ["scion", "start", "-t", "tasker", task_slug, prompt, "--non-interactive"]
     
     print(f"Decomposing task: {task_slug} in {folder} (pulling from {current_branch})")
     try:
         working_file.touch()
-        # Non-blocking async call unlocks massive swarm parallelization
-        subprocess.Popen(command, cwd=Path.cwd(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Sequential call to prevent Hub SQLite database locking
+        subprocess.run(command, cwd=Path.cwd(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except FileNotFoundError:
         print("Error: 'scion' command not found.", file=sys.stderr)
     
