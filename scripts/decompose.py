@@ -4,25 +4,11 @@ import subprocess
 from pathlib import Path
 import time
 
-def get_shared_volume_dir():
-    """ Returns the path to the shared volume for lock files. """
-    volume_dir = Path.cwd() / ".scion-volumes" / "task-locks"
-    volume_dir.mkdir(parents=True, exist_ok=True)
-    return volume_dir
-
-def get_lock_prefix(folder_path):
-    """ Generates a safe, unique prefix for a given folder path. """
-    try:
-        rel_path = Path(folder_path).resolve().relative_to(Path.cwd())
-    except ValueError:
-        rel_path = Path(folder_path).resolve()
-    return str(rel_path).replace('/', '_')
-
 def get_working_file(folder_path):
-    return get_shared_volume_dir() / f"{get_lock_prefix(folder_path)}.WORKING"
+    return folder_path / ".WORKING"
 
 def get_terminal_file(folder_path):
-    return get_shared_volume_dir() / f"{get_lock_prefix(folder_path)}.TERMINAL_TASK"
+    return folder_path / "TERMINAL_TASK"
 
 def delete_agent(agent_id):
     """ Deletes a scion agent if it exists. """
@@ -45,16 +31,16 @@ def process_folder(folder_path):
 
     # -- If it has a "TERMINAL_TASK" file, skip the folder, it is done
     if terminal_file.exists():
+        if working_file.exists():
+            working_file.unlink()
         delete_agent(folder.name)
         return False
-
-    # -- if it has a "WORKING" file, it is already being worked on and we should wait
-    if working_file.exists():
-        return True
 
     # -- if it has a subtasks folder, recurse and check if any subtasks are still working
     subtasks_folder = folder / "subtasks"
     if subtasks_folder.exists() and subtasks_folder.is_dir():
+        if working_file.exists():
+            working_file.unlink()
         still_working = False
         for item in subtasks_folder.iterdir():
             if item.is_dir():
@@ -63,6 +49,10 @@ def process_folder(folder_path):
         if not still_working:
             delete_agent(folder.name)
         return still_working
+
+    # -- if it has a "WORKING" file and no subtasks or terminal file yet, it is still being worked on
+    if working_file.exists():
+        return True
 
     # -- if none of these conditions has been met, then this folder needs to be decomposed
     task_slug = folder.name
@@ -87,7 +77,7 @@ def process_folder(folder_path):
     except Exception as e:
         pass
 
-    prompt = f"git pull origin {current_branch} --no-edit && cd {rel_path} && decompose this task. Your lockfile is {working_file.absolute()}. To mark as terminal, create {terminal_file.absolute()}."
+    prompt = f"git pull origin {current_branch} --no-edit && cd {rel_path} && decompose this task. To mark as terminal, create {terminal_file.absolute()}. DO NOT WORRY ABOUT LOCK FILES."
     command = ["scion", "start", "-t", "tasker", task_slug, prompt, "--non-interactive"]
     
     print(f"Decomposing task: {task_slug} in {folder} (pulling from {current_branch})")
@@ -145,15 +135,14 @@ if __name__ == "__main__":
         print(f"Error: {target_folder} is not a directory.")
         sys.exit(1)
         
-    # Ensure shared directory is initialized if we are using Scion Hub
-    try:
-        subprocess.run(["scion", "shared-dir", "create", "task-locks"], stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
-    except Exception:
-        pass
-        
     still_working = True
     while still_working:
-        print("Agents are working...")
+        print("Agents are working... pulling latest git state")
+        try:
+            subprocess.run(["git", "pull", "origin", "HEAD", "--no-edit"], cwd=Path.cwd(), stderr=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+        except Exception:
+            pass
+            
         still_working = process_folder(target_folder)
         if still_working:
             time.sleep(10)
