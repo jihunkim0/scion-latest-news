@@ -78,7 +78,7 @@ def process_folder(folder_path):
         pass
 
     prompt = f"git config --global --add safe.directory '*' && git pull origin {current_branch} --no-edit && cd '{rel_path}' && decompose this task. To mark as terminal, create '{terminal_file.absolute()}'. DO NOT WORRY ABOUT LOCK FILES."
-    command = ["scion", "start", "-t", "tasker", task_slug, prompt, "--non-interactive"]
+    command = ["scion", "start", "-t", "tasker", task_slug, prompt, "--non-interactive", "--no-hub"]
     
     print(f"Decomposing task: {task_slug} in {folder} (pulling from {current_branch})")
     try:
